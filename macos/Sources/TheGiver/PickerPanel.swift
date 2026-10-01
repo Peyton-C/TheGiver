@@ -100,7 +100,25 @@ final class PickerPanel: NSPanel {
     /// view swallows the ones it has no use for and keyDown never sees them.
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, handleKey(event) { return }
-        super.sendEvent(event)
+        super.sendEvent(event.type == .scrollWheel ? Self.sideways(event) : event)
+    }
+
+    /// The row of applications only runs sideways, so an ordinary mouse wheel
+    /// would do nothing over it. Nothing in the picker scrolls vertically, so
+    /// every mostly-vertical scroll is turned on its side.
+    private static func sideways(_ event: NSEvent) -> NSEvent {
+        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX),
+              let copy = event.cgEvent?.copy() else { return event }
+        let axes: [(CGEventField, CGEventField)] = [
+            (.scrollWheelEventDeltaAxis1, .scrollWheelEventDeltaAxis2),
+            (.scrollWheelEventPointDeltaAxis1, .scrollWheelEventPointDeltaAxis2),
+            (.scrollWheelEventFixedPtDeltaAxis1, .scrollWheelEventFixedPtDeltaAxis2),
+        ]
+        for (vertical, horizontal) in axes {
+            copy.setDoubleValueField(horizontal, value: copy.getDoubleValueField(vertical))
+            copy.setDoubleValueField(vertical, value: 0)
+        }
+        return NSEvent(cgEvent: copy) ?? event
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {

@@ -6,6 +6,11 @@
 
 #define APP_ID "io.github.peyton_c.TheGiver"
 
+// Make sure 5 apps are always visible, like The Giver on macOS and 
+#define APP_WIDTH 124
+#define APP_SPACING 6
+#define APPS_VISIBLE 5
+
 typedef struct {
     GtkWindow *window;
     GtkWidget *row;
@@ -127,12 +132,13 @@ static GtkWidget *app_button(Picker *p, guint index)
     GIcon *icon = g_app_info_get_icon(info);
     GtkWidget *image = icon ? gtk_image_new_from_gicon(icon)
                             : gtk_image_new_from_icon_name("application-x-executable");
-    gtk_image_set_pixel_size(GTK_IMAGE(image), 64);
+    gtk_image_set_pixel_size(GTK_IMAGE(image), 80);
 
     GtkWidget *label = gtk_label_new(g_app_info_get_display_name(info));
     gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
-    gtk_label_set_width_chars(GTK_LABEL(label), 12);
-    gtk_label_set_max_width_chars(GTK_LABEL(label), 12);
+    /* Narrower than the button, so a long name ellipsizes rather than
+     * widening it. */
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 11);
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     gtk_box_append(GTK_BOX(box), image);
@@ -142,6 +148,7 @@ static GtkWidget *app_button(Picker *p, guint index)
     gtk_button_set_child(GTK_BUTTON(button), box);
     gtk_widget_add_css_class(button, "flat");
     gtk_widget_add_css_class(button, "app");
+    gtk_widget_set_size_request(button, APP_WIDTH, -1);
     gtk_widget_set_tooltip_text(button, g_app_info_get_display_name(info));
     g_object_set_data(G_OBJECT(button), "index", GUINT_TO_POINTER(index));
     g_signal_connect(button, "clicked", G_CALLBACK(on_app_clicked), p);
@@ -257,6 +264,19 @@ static gboolean on_key_pressed(GtkEventControllerKey *controller, guint keyval, 
     return FALSE;
 }
 
+// Makes vertical scrolling into horizontal scrolling
+static gboolean on_row_scroll(GtkEventControllerScroll *controller, double dx, double dy, gpointer data)
+{
+    (void)dx;
+    GtkAdjustment *adjustment = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(data));
+    // Mouse wheel clicks are each worth one application
+    // Trackpads go by pixel
+    if (gtk_event_controller_scroll_get_unit(controller) == GDK_SCROLL_UNIT_WHEEL)
+        dy *= APP_WIDTH + APP_SPACING;
+    gtk_adjustment_set_value(adjustment, gtk_adjustment_get_value(adjustment) + dy);
+    return TRUE;
+}
+
 static void picker_free(gpointer data)
 {
     Picker *p = data;
@@ -269,6 +289,14 @@ static void on_close_clicked(GtkButton *button, gpointer data)
 {
     (void)button;
     gtk_window_close(GTK_WINDOW(data));
+}
+
+static gboolean focus_first_app(gpointer data)
+{
+    Picker *p = g_object_get_data(G_OBJECT(data), "picker");
+    if (p->apps->len > 0)
+        gtk_widget_grab_focus(gtk_widget_get_first_child(p->row));
+    return G_SOURCE_REMOVE;
 }
 
 static void open_picker(GtkApplication *app, GStrv uris)
@@ -289,11 +317,19 @@ static void open_picker(GtkApplication *app, GStrv uris)
     gtk_widget_set_visible(titlebar, FALSE);
     gtk_window_set_titlebar(p->window, titlebar);
 
-    p->row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    p->row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, APP_SPACING);
     GtkWidget *scroller = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), p->row);
-    gtk_widget_set_size_request(scroller, 620, 124);
+    /* Only the width is fixed. A fixed height squashed the row under themes
+     * with roomier buttons, so the row's own height is used instead. */
+    gtk_widget_set_size_request(scroller, APPS_VISIBLE * APP_WIDTH + (APPS_VISIBLE - 1) * APP_SPACING, -1);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroller), TRUE);
+
+    GtkEventController *wheel = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    gtk_event_controller_set_propagation_phase(wheel, GTK_PHASE_CAPTURE);
+    g_signal_connect(wheel, "scroll", G_CALLBACK(on_row_scroll), scroller);
+    gtk_widget_add_controller(scroller, wheel);
 
     GMenu *menu = g_menu_new();
     g_menu_append(menu, "Copy", "picker.copy");
@@ -335,7 +371,7 @@ static void open_picker(GtkApplication *app, GStrv uris)
     gtk_box_append(GTK_BOX(bar), p->entry);
     gtk_box_append(GTK_BOX(bar), close_button);
 
-    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
     gtk_widget_add_css_class(content, "content");
     gtk_box_append(GTK_BOX(content), scroller);
     gtk_box_append(GTK_BOX(content), bar);
@@ -350,11 +386,11 @@ static void open_picker(GtkApplication *app, GStrv uris)
     gtk_widget_add_controller(window, keys);
 
     rebuild_row(p);
-    /* Start on the first application rather than the entry, so the arrow
-     * keys and Return pick one straight away. */
-    if (p->apps->len > 0)
-        gtk_window_set_focus(p->window, gtk_widget_get_first_child(p->row));
     gtk_window_present(p->window);
+    /* Start on the first application rather than the entry, so the arrow
+     * keys and Return pick one straight away. GTK gives the entry focus as
+     * the window maps, so this has to wait until it has. */
+    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, focus_first_app, g_object_ref(window), g_object_unref);
 }
 
 /* --- Application -------------------------------------------------------- */
@@ -404,15 +440,50 @@ static void on_activate(GApplication *app, gpointer data)
     gtk_window_present(GTK_WINDOW(window));
 }
 
+/* The accent colour chosen in the desktop's settings, as CSS. GTK on its own
+ * always answers blue; following the setting is otherwise libadwaita's job,
+ * so ask the settings portal the way it does. */
+static char *accent_color(GApplication *app)
+{
+    GVariant *reply = g_dbus_connection_call_sync(
+        g_application_get_dbus_connection(app), "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Settings", "ReadOne",
+        g_variant_new("(ss)", "org.freedesktop.appearance", "accent-color"),
+        G_VARIANT_TYPE("(v)"), G_DBUS_CALL_FLAGS_NONE, 500, NULL, NULL);
+    char *color = NULL;
+    if (reply) {
+        GVariant *value;
+        double r, g, b;
+        g_variant_get(reply, "(v)", &value);
+        /* Out of range means no accent is set. */
+        if (g_variant_is_of_type(value, G_VARIANT_TYPE("(ddd)"))) {
+            g_variant_get(value, "(ddd)", &r, &g, &b);
+            if (r >= 0 && r <= 1 && g >= 0 && g <= 1 && b >= 0 && b <= 1)
+                color = g_strdup_printf("rgba(%d, %d, %d, 0.4)", (int)(r * 255), (int)(g * 255), (int)(b * 255));
+        }
+        g_variant_unref(value);
+        g_variant_unref(reply);
+    }
+    return color ? color : g_strdup("alpha(@accent_bg_color, 0.35)");
+}
+
 static void on_startup(GApplication *app, gpointer data)
 {
-    (void)app;
     (void)data;
+    char *accent = accent_color(app);
+    char *style = g_strdup_printf(
+        ".content { margin: 18px; }\n"
+        ".picker .app { padding: 16px 10px; border-radius: 18px; }\n"
+        ".picker .app label { margin-top: 4px; }\n"
+        /* The focused application is the selected one, so it is shown
+         * whether or not focus came from the keyboard. */
+        ".picker .app:focus { background-color: %s; outline: none; }\n"
+        ".picker entry { border-radius: 999px; padding: 0 14px; min-height: 38px; }\n",
+        accent);
     GtkCssProvider *css = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(css,
-        ".content { margin: 14px; }\n"
-        ".picker .app { padding: 12px 4px; border-radius: 16px; }\n"
-        ".picker entry { border-radius: 999px; padding: 0 12px; }\n");
+    gtk_css_provider_load_from_string(css, style);
+    g_free(style);
+    g_free(accent);
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(css),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     g_object_unref(css);
