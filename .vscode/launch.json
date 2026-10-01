@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:TheGiver}",
+            "name": "Debug TheGiver",
+            "target": "TheGiver",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug TheGiver"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:TheGiver}",
+            "name": "Release TheGiver",
+            "target": "TheGiver",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release TheGiver"
+        }
+    ]
+}

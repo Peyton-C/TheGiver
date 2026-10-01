@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=The Giver
+Comment=Choose the application to open a file or link with
+Exec=the-giver %U
+Icon=io.github.peyton_c.TheGiver
+Terminal=false
+Categories=Utility;
+MimeType=x-scheme-handler/http;x-scheme-handler/https;x-scheme-handler/mailto;text/html;application/xhtml+xml;text/plain;application/pdf;image/png;image/jpeg;audio/mpeg;audio/mp4;video/mp4;
+Keywords=open;with;browser;picker;chooser;
